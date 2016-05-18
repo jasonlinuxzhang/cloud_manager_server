@@ -27,7 +27,9 @@ int socket_init()
         log_error_message("inet_ntoa fail");
         return -1;
     }
-    
+    int on;
+    on = 1;
+    setsockopt(g_sockfd, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on) );    
     if(-1 == bind(g_sockfd, (struct sockaddr *)(&server_addr), sizeof(struct sockaddr)))
     {
         log_error_message("bind fail");
