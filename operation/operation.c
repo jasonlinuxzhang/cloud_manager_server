@@ -7,10 +7,14 @@
 #include "../log/log.h"
 #include "../cJSON/cJSON.h"
 
+#define READ_FILE_MAX (1024*1024)
+
 OPERATION operation_group[] = {
     {"START", start_vm},
     {"FETCH", vm_list_fetch},
     {"DESTROY", destroy_vm},
+    {"DEFINE", define_vm},
+    {"DETAIL", detail_vm},
     {NULL, NULL}
 };
 
@@ -21,8 +25,117 @@ const char *operation_code_to_string(int code)
         case 0: return "START";
         case 2: return "FETCH";
         case 3: return "DESTROY";
+        case 4: return "DEFINE";
+        case 5: return "DETAIL";
         default: return NULL;
     }    
+}
+
+
+cJSON *detail_vm(cJSON *param)
+{
+    cJSON *name_object = NULL;
+    cJSON *return_object = NULL, *operation_result_object = NULL;
+    int vm_port = -1;
+    virDomainPtr domain;
+    int vm_state = 0;
+    if(NULL == param || cJSON_Object != param->type)
+    {
+        log_error_message("JSON object is null orJSON object is not array");
+        return NULL;
+    }
+    
+    name_object = cJSON_GetObjectItem(param, "Name");
+    if(NULL == name_object || cJSON_String != name_object->type)
+    {
+        log_error_message("name object is null or type is not string");
+        return NULL;
+    }
+
+    try_connect(); 
+    
+    domain = virDomainLookupByName(g_conn, name_object->valuestring);
+    if(NULL == domain)
+    {
+        log_error_message("can't find domain by %s", name_object->valuestring);
+        return NULL;
+    }
+    
+    char *xml = virDomainGetXMLDesc(domain, 0);
+    if(NULL == xml)
+    {
+        log_error_message("can't get domain xml");
+        return NULL;
+    }
+
+    if(virDomainGetState(domain, &vm_state, NULL, 0) != 0)
+    {
+        log_error_message("can't get domain state");
+        return NULL;
+    }
+
+    if(vm_state == VIR_DOMAIN_RUNNING)
+    {
+        vm_port = get_vm_port(name_object->valuestring); 
+    }
+
+    return_object = cJSON_CreateObject();
+    if(NULL == return_object)
+    {
+        goto clean;
+    }
+    cJSON_AddNumberToObject(return_object, "MessageType", 1);
+    cJSON_AddNumberToObject(return_object, "RequestType", 5);
+    operation_result_object = cJSON_CreateObject();
+    if(NULL == operation_result_object)
+    {
+        goto clean;
+    }
+    
+    cJSON_AddStringToObject(operation_result_object, "Xml", xml);
+    cJSON_AddNumberToObject(operation_result_object, "Port", vm_port);
+    cJSON_AddItemToObject(return_object, "Operation_Result", operation_result_object);
+    
+
+    return return_object;
+
+clean:
+    if(NULL != return_object)
+    {
+        cJSON_Delete(return_object);
+    } 
+    if(NULL != operation_result_object)
+    {
+        cJSON_Delete(operation_result_object);
+    }
+}
+
+
+cJSON *define_vm(cJSON *param)
+{
+    cJSON *cpu_object = NULL, *disk_object = NULL, *memory_object = NULL, *name_object = NULL;
+    if(NULL == param || cJSON_Object != param->type)
+    {
+        log_error_message("JSON object is null orJSON object is not array");
+        return NULL;
+    }
+    
+    name_object = cJSON_GetObjectItem(param, "Name");
+    if(NULL == name_object || cJSON_String != name_object->type)
+    {
+        log_error_message("name object is null or type is not string");
+        return NULL;
+    }
+
+    try_connect();
+
+    if(NULL != virDomainLookupByName, name_object->valuestring)
+    {
+        log_error_message("this name is already use");
+        return NULL;
+    }
+    
+    
 }
 
 cJSON *destroy_vm(cJSON *param)

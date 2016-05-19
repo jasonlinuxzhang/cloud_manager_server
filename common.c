@@ -3,7 +3,8 @@
 #include <errno.h>
 #include <unistd.h>
 #include "log/log.h"
-
+#include <string.h>
+#include <stdlib.h>
 int try_connect()
 {
     if(NULL == g_conn)
@@ -64,4 +65,50 @@ int saferead(int sockfd, char *buf, int count)
         }
     }
     return real_count;
+}
+
+
+int get_vm_port(char *vm_name)
+{
+    char cmd[128] = {0};
+    char cmd_result[128] = {0};
+    if(NULL == vm_name)
+        return -1;
+    snprintf(cmd, sizeof(cmd), "virsh domdisplay %s", vm_name);
+    
+    FILE *pfile = popen(cmd, "r"); 
+    if(NULL == pfile)
+    {
+        log_error_message("%s execute fail", cmd);
+        return -1;
+    }
+    
+    int read_count = fread(cmd_result, sizeof(char), sizeof(cmd_result), pfile);
+    if(read_count < 0)
+    {
+        log_error_message("read fail");
+        goto clean;
+    }
+    
+    char *pos = strrchr(cmd_result, ':'); 
+    if(NULL == pos)
+    {
+        goto clean;
+    }
+    
+    pos ++;
+        
+    int port;
+
+    port = atoi(pos);    
+
+    log_info_message("get %s port:%d", vm_name, port);
+
+    return port;
+
+clean:
+    if(NULL != pfile)
+    {
+        pclose(pfile);
+    }
 }
