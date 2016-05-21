@@ -1,13 +1,16 @@
 #include <stdio.h>
 #include <libvirt/libvirt.h>
+#include <libvirt/virterror.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <errno.h>
 #include "operation.h"
 #include "../common.h"
 #include "../log/log.h"
 #include "../cJSON/cJSON.h"
 
-#define READ_FILE_MAX (1024*1024)
 
 OPERATION operation_group[] = {
     {"START", start_vm},
@@ -15,6 +18,7 @@ OPERATION operation_group[] = {
     {"DESTROY", destroy_vm},
     {"DEFINE", define_vm},
     {"DETAIL", detail_vm},
+    {"UNDEFINE", undefine_vm},
     {NULL, NULL}
 };
 
@@ -27,8 +31,57 @@ const char *operation_code_to_string(int code)
         case 3: return "DESTROY";
         case 4: return "DEFINE";
         case 5: return "DETAIL";
+        case 6: return "UNDEFINE";
         default: return NULL;
     }    
+}
+
+cJSON *undefine_vm(cJSON *param)
+{
+    int vm_count = 0;
+    cJSON *vm_object = NULL;
+    virDomainPtr domain;
+    int res = 0, i = 0;
+    if(NULL == param || cJSON_Array != param->type) 
+    {
+        log_error_message("JSON object is null orJSON object is not array");
+        return NULL;
+    }
+
+    vm_count = cJSON_GetArraySize(param);
+    if(vm_count <=0)
+    {
+        log_info_message("No vm");
+    }    
+
+    try_connect();    
+
+    for(i = 0; i < vm_count; i++)
+    {
+        vm_object = cJSON_GetArrayItem(param, i);
+        if(NULL == vm_object)
+            continue;
+        if(cJSON_String != vm_object->type)
+        {
+            continue;
+        }
+        domain = virDomainLookupByName(g_conn, vm_object->valuestring);
+        if(NULL == domain)
+        {
+            get_libvirt_error();
+            continue;
+        }
+        
+        res = virDomainUndefine(domain);
+        if(0 != res)
+        {
+            get_libvirt_error();
+            continue;
+        }
+    }
+    
+    /* send list fetch result after start vms */
+    return vm_list_fetch(NULL);
 }
 
 
@@ -57,20 +110,20 @@ cJSON *detail_vm(cJSON *param)
     domain = virDomainLookupByName(g_conn, name_object->valuestring);
     if(NULL == domain)
     {
-        log_error_message("can't find domain by %s", name_object->valuestring);
+        get_libvirt_error();
         return NULL;
     }
     
     char *xml = virDomainGetXMLDesc(domain, 0);
     if(NULL == xml)
     {
-        log_error_message("can't get domain xml");
+        get_libvirt_error();
         return NULL;
     }
 
     if(virDomainGetState(domain, &vm_state, NULL, 0) != 0)
     {
-        log_error_message("can't get domain state");
+        get_libvirt_error();
         return NULL;
     }
 
@@ -114,6 +167,14 @@ clean:
 cJSON *define_vm(cJSON *param)
 {
     cJSON *cpu_object = NULL, *disk_object = NULL, *memory_object = NULL, *name_object = NULL;
+    cJSON *mac_object = NULL, *system_object = NULL;
+    virDomainPtr *domains;
+    int vmCount  = 0, i = 0;
+    char *mac_temp = NULL, *xml_string = NULL;
+    char create_img[1024] = {0};
+    
+    VM_ATTRIBUTE attribute;
+
     if(NULL == param || cJSON_Object != param->type)
     {
         log_error_message("JSON object is null orJSON object is not array");
@@ -129,13 +190,110 @@ cJSON *define_vm(cJSON *param)
 
     try_connect();
 
-    if(NULL != virDomainLookupByName, name_object->valuestring)
+    if(NULL != virDomainLookupByName(g_conn, name_object->valuestring))
     {
-        log_error_message("this name is already use");
+        get_libvirt_error();
+        return NULL;
+    }
+
+    memory_object = cJSON_GetObjectItem(param, "MemorySize"); 
+    if(NULL == memory_object || cJSON_Number != memory_object->type)
+    {
+        log_error_message("memory object is null or type is not number");
         return NULL;
     }
     
+    disk_object = cJSON_GetObjectItem(param, "DiskSize");
+    if(NULL == disk_object || cJSON_Number != disk_object->type)
+    {
+        log_error_message("disk object is null or type is not number");
+        return NULL;
+    }
     
+    cpu_object = cJSON_GetObjectItem(param, "CpuNumber");
+    if(NULL == cpu_object || cJSON_Number != cpu_object->type)
+    {
+        log_error_message("cpu object is null or type is not number");
+        return NULL;
+    }
+
+    mac_object = cJSON_GetObjectItem(param, "Mac");
+    if(NULL == mac_object || cJSON_String != mac_object->type)
+    {
+        log_error_message("mac object is null or type is not number");
+        return NULL;
+    }
+
+    system_object = cJSON_GetObjectItem(param, "System");
+    if(NULL == system_object || cJSON_String != system_object->type)
+    {
+        log_error_message("system object is null or type is not number");
+        return NULL;
+    }
+
+    vmCount = virConnectListAllDomains(g_conn, &domains, 0);
+    if(vmCount <= 0)
+    {
+        get_libvirt_error();
+        return NULL;
+    }
+
+    for(i = 0; i < vmCount; i++)
+    {
+        mac_temp =  get_vm_mac((char *)virDomainGetName(domains[i])); 
+        if(NULL == mac_temp)
+        {
+            continue;
+        }
+        if(strcmp(mac_temp, mac_object->valuestring) == 0)
+        {
+            log_info_message("this mac %s is already use by %s", mac_temp, virDomainGetName(domains[i]));
+            free(mac_temp);
+            break;
+        }
+        free(mac_temp);
+    }
+    
+    if(i != vmCount)
+    {
+        return NULL;
+    }
+
+    memset(&attribute, 0, sizeof(attribute));
+    attribute.name = (char *)name_object->valuestring;
+    attribute.mac_address = (char *)mac_object->valuestring;
+    attribute.system_type = (char *)system_object->valuestring;
+    attribute.memory_size = memory_object->valueint;
+    attribute.cpu_number = cpu_object->valueint; 
+
+    xml_string = build_vm_xml(&attribute);    
+    if(NULL == xml_string)
+    {
+        goto clean;
+    }
+
+    sprintf(create_img, "qemu-img create -f qcow2 %s%s.qcow2 %dG 0>/dev/null 1>/dev/null 2>/dev/null", IMAGE_PATH, name_object->valuestring, disk_object->valueint); 
+    if(0 !=system(create_img))  
+    {
+        log_error_message("create img fail for %s", disk_object->valueint);
+        goto clean;
+    } 
+    
+    if(NULL == virDomainDefineXML(g_conn, xml_string))
+    {
+        get_libvirt_error();
+        goto clean;
+    } 
+    
+    free(xml_string);
+    return vm_list_fetch(NULL); 
+
+clean:
+    if(NULL != xml_string)
+    {
+        free(xml_string);
+    } 
+    return NULL;
 }
 
 cJSON *destroy_vm(cJSON *param)
@@ -170,14 +328,14 @@ cJSON *destroy_vm(cJSON *param)
         domain = virDomainLookupByName(g_conn, vm_object->valuestring);
         if(NULL == domain)
         {
-            log_error_message("can't get %s domain", vm_object->valuestring);
+            get_libvirt_error();
             continue;
         }
         
         res = virDomainDestroy(domain);
         if(0 != res)
         {
-            log_error_message("%s destroy fail", vm_object->valuestring);
+            get_libvirt_error();
             continue;
         }
     }
@@ -218,14 +376,14 @@ cJSON *start_vm(cJSON *param)
         domain = virDomainLookupByName(g_conn, vm_object->valuestring);
         if(NULL == domain)
         {
-            log_error_message("can't get %s domain", vm_object->valuestring);
+            get_libvirt_error();
             continue;
         }
         
         res = virDomainCreate(domain);
         if(0 != res)
         {
-            log_error_message("%s start fail", vm_object->valuestring);
+            get_libvirt_error();
             continue;
         }
     }
@@ -253,14 +411,14 @@ cJSON *vm_list_fetch(cJSON *param)
     active_vm_count = virConnectListAllDomains(g_conn, &active_domains, VIR_CONNECT_LIST_DOMAINS_ACTIVE);
     if(active_vm_count < 0)
     {
-        log_error_message("list active domains fail");
+        get_libvirt_error();
         goto clean;
     }
 
     inactive_vm_count = virConnectListAllDomains(g_conn, &inactive_domains, VIR_CONNECT_LIST_DOMAINS_INACTIVE);
     if(inactive_vm_count < 0)
     {
-        log_error_message("list inactive domains fail");
+        get_libvirt_error();
         goto clean;
     }
 

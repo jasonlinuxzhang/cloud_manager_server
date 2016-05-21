@@ -93,6 +93,9 @@ void *handle_operation(void *arg)
     
     if(json_len <= 0)
     {
+        read_count = read(client_fd, json_len_string, 128);
+        json_len_string[read_count] = '\0';
+        log_info_message("%s", json_len_string);
         goto clean;
     }
     else

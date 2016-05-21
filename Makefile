@@ -1,5 +1,5 @@
 yun_manager: manager.o log.o network.o common.o cJSON.o operation.o
-	gcc -o yun_manager manager.o log.o network.o common.o cJSON.o operation.o -lpthread -lm -lvirt
+	gcc -o yun_manager manager.o log.o network.o common.o cJSON.o operation.o -lpthread -lm -lvirt -g
 manager.o: manager.c
 	gcc -c manager.c
 log.o: log/log.c log/log.h

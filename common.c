@@ -5,6 +5,9 @@
 #include "log/log.h"
 #include <string.h>
 #include <stdlib.h>
+#include <fcntl.h>
+#include <libvirt/libvirt.h>
+#include <libvirt/virterror.h>
 int try_connect()
 {
     if(NULL == g_conn)
@@ -112,3 +115,185 @@ clean:
         pclose(pfile);
     }
 }
+
+
+char *get_vm_mac(char *name)
+{
+    char *mac_address = NULL;
+    if(NULL == name)
+    {
+        return NULL;    
+    }
+    virDomainPtr domain = virDomainLookupByName(g_conn, name); 
+    if(NULL == domain)
+    {
+        log_error_message("get %s domain fail", name);
+        return NULL;
+    }
+    
+    char *xml = virDomainGetXMLDesc(domain, 0);
+    if(NULL == xml)
+    {
+        log_error_message("get %s xml fail", name);
+        return NULL;
+    }
+
+    char *pos_start = strstr(xml, "mac address='");
+    if(NULL == pos_start)
+    {
+        log_error_message("can't find mac location");
+        return NULL;
+    }
+
+    pos_start += strlen("mac address='");
+    
+    char *pos_end = pos_start + strlen("xx:xx:xx:xx:xx:xx");
+    
+    mac_address = malloc(pos_end - pos_start + 1);
+    if(NULL == mac_address)
+    {
+        log_error_message("alloc memory for mac fail");
+        return NULL;
+    }
+    memset(mac_address, 0, pos_end - pos_start + 1);
+    memcpy(mac_address, pos_start, pos_end - pos_start);
+    
+    return mac_address;
+}
+
+char *insert_string(char *source_string, const char *matching_string, const char *insert_string)
+{
+    if(NULL == source_string || NULL == matching_string || NULL == insert_string)
+    {
+        return NULL;
+    }
+
+    char *pos = strstr(source_string, matching_string);
+    if(NULL == pos)
+    {
+        log_error_message("can't find %s", matching_string);
+        return NULL;
+    }
+    pos += strlen(matching_string);
+    
+    int new_string_len = strlen(source_string) + strlen(insert_string) + 1;
+    char *new_string = NULL, *temp_pos = NULL;
+    temp_pos = malloc(new_string_len * sizeof(char));
+    if(NULL == temp_pos)
+    {
+        log_error_message("alloc memory fail");
+        return NULL;
+    }
+    memset(temp_pos, 0, new_string_len);
+    new_string = temp_pos;
+
+    memcpy(temp_pos, source_string, pos - source_string);
+    temp_pos += (pos - source_string);
+
+    memcpy(temp_pos, insert_string, strlen(insert_string));
+    temp_pos += strlen(insert_string);
+
+    memcpy(temp_pos, pos, strlen(source_string) - (pos - source_string));
+    
+    free(source_string);
+    return new_string;
+}
+
+
+char *build_vm_xml(VM_ATTRIBUTE *attribute)
+{
+    char *xml_string = NULL, *xml_string_temp = NULL;
+    int filefd = -1;
+    char memory_buffer[10]= {0}, cpu_buffer[10] = {0}, disk_name_buffer[128] = {0};
+
+    if(NULL == attribute)
+    {
+        return NULL;
+    }
+
+    filefd = open(XML_FILE_PATH, O_RDONLY);
+    if(filefd < 0)
+    {
+        log_error_message("open file %s fail", XML_FILE_PATH);
+        goto clean;
+    }    
+    
+    xml_string = malloc(READ_FILE_MAX * sizeof(char));
+    if(NULL == xml_string)
+    {   
+        log_error_message("alloc memory fail");
+        goto clean;
+    }
+    memset(xml_string, 0, READ_FILE_MAX * sizeof(char));
+
+    int read_count = saferead(filefd, xml_string, READ_FILE_MAX);
+    if(read_count <= 0)
+    {
+        log_error_message("read file fail");
+        goto clean;
+    }
+    xml_string[read_count] = '\0';
+
+    xml_string_temp = insert_string(xml_string, "<name>", attribute->name); 
+    if(NULL == xml_string_temp)
+    {
+        goto clean;
+    }
+    xml_string = xml_string_temp;
+
+    sprintf(memory_buffer, "%d", attribute->memory_size * 1024 * 512);
+    xml_string_temp = insert_string(xml_string, "<memory unit='KiB'>", memory_buffer);
+    if(NULL == xml_string_temp)
+    {
+        goto clean;
+    }
+    xml_string = xml_string_temp;
+
+    xml_string_temp = insert_string(xml_string, "<currentMemory unit='KiB'>", memory_buffer);
+    if(NULL == xml_string_temp)
+    {
+        goto clean;
+    }
+    xml_string = xml_string_temp;
+    
+    sprintf(cpu_buffer, "%d", attribute->cpu_number);
+    xml_string_temp = insert_string(xml_string, "<vcpu placement='static'>", cpu_buffer);
+    if(NULL == xml_string_temp)
+    {
+        goto clean;
+    }
+    xml_string = xml_string_temp;
+
+    sprintf(disk_name_buffer, "%s%s.qcow2", IMAGE_PATH, attribute->name);
+    xml_string_temp = insert_string(xml_string, "type='qcow2'/>\n<source file='", disk_name_buffer);
+    if(NULL == xml_string_temp)
+    {
+        goto clean;
+    }
+    xml_string = xml_string_temp;
+    
+    sprintf(disk_name_buffer, "%s%s.iso", IMAGE_PATH, attribute->system_type);
+    xml_string_temp = insert_string(xml_string, "device='cdrom'>\n<source file='", disk_name_buffer);
+    if(NULL == xml_string_temp)
+    {
+        goto clean;
+    }
+
+    xml_string = xml_string_temp;
+    xml_string_temp = insert_string(xml_string, "<mac address='", attribute->mac_address);
+    if(NULL == xml_string_temp)
+    {
+        goto clean;
+    }
+    xml_string = xml_string_temp;
+    return xml_string;
+
+clean: 
+
+    if(NULL != xml_string)
+    {
+        free(xml_string);
+    }
+    return NULL;
+}
+
