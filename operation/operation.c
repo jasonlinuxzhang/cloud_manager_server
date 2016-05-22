@@ -19,6 +19,8 @@ OPERATION operation_group[] = {
     {"DEFINE", define_vm},
     {"DETAIL", detail_vm},
     {"UNDEFINE", undefine_vm},
+    {"USAGE", get_usage},
+    {"HOST", get_host_info},
     {NULL, NULL}
 };
 
@@ -32,9 +34,22 @@ const char *operation_code_to_string(int code)
         case 4: return "DEFINE";
         case 5: return "DETAIL";
         case 6: return "UNDEFINE";
+        case 7: return "USAGE";
         default: return NULL;
     }    
 }
+
+
+cJSON *get_host_info(cJSON *param)
+{
+    
+}
+
+cJSON *get_usage(cJSON *param)
+{
+    
+}
+
 
 cJSON *undefine_vm(cJSON *param)
 {

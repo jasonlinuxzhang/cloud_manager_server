@@ -15,5 +15,6 @@ cJSON *destroy_vm(cJSON *param);
 cJSON *detail_vm(cJSON *param);
 cJSON *define_vm(cJSON *param);
 cJSON *undefine_vm(cJSON *param);
+cJSON *get_usage(cJSON *param);
 
 #endif 
