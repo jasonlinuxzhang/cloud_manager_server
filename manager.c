@@ -11,6 +11,8 @@
 #include <pthread.h>
 #include "cJSON/cJSON.h"
 #include "operation/operation.h"
+#include "host/host.h"
+#include "vm_monitor/vm_monitor.h"
 
 void *handle_operation(void *arg);
 int search_operation_func(int operation_code);
@@ -25,6 +27,8 @@ int manager_init()
     {
         return -1;
     }
+    host_monitor_init();
+    vm_monitor_init();
 }
 
 

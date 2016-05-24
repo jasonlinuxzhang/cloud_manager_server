@@ -10,7 +10,11 @@
 #include "../common.h"
 #include "../log/log.h"
 #include "../cJSON/cJSON.h"
+#include "../host/host.h"
+#include "../vm_monitor/vm_monitor.h"
 
+static cJSON *get_host_info();
+static cJSON *get_vm_info();
 
 OPERATION operation_group[] = {
     {"START", start_vm},
@@ -19,8 +23,7 @@ OPERATION operation_group[] = {
     {"DEFINE", define_vm},
     {"DETAIL", detail_vm},
     {"UNDEFINE", undefine_vm},
-    {"USAGE", get_usage},
-    {"HOST", get_host_info},
+    {"MONITOR", yun_monitor},
     {NULL, NULL}
 };
 
@@ -34,22 +37,103 @@ const char *operation_code_to_string(int code)
         case 4: return "DEFINE";
         case 5: return "DETAIL";
         case 6: return "UNDEFINE";
-        case 7: return "USAGE";
+        case 7: return "MONITOR";
+
         default: return NULL;
     }    
 }
 
-
-cJSON *get_host_info(cJSON *param)
+cJSON *yun_monitor(cJSON *param)
 {
+    cJSON *ret =get_vm_info();
+    if(NULL == ret)
+    {
+        log_error_message("can't get vm info");
+    }
+    cJSON *operation_result_object = cJSON_CreateObject();
+    if(NULL == operation_result_object)
+    {
+        log_error_message("create object fail");
+        goto clean;
+    }
+    if(NULL != ret)
+    {
+        cJSON_AddItemToObject(operation_result_object, "VmInfo", ret);
+    }
+    cJSON *host_info_obejct = get_host_info(NULL);
+    if(NULL == host_info_obejct)
+    {
+        log_error_message("cab't get host info");
+    }
     
+    cJSON_AddItemToObject(operation_result_object, "HostInfo", host_info_obejct);
+
+    cJSON *response_object = cJSON_CreateObject();
+    if(NULL == response_object)
+    {
+        log_error_message("create return object fail");
+        goto clean;
+    } 
+
+    cJSON_AddNumberToObject(response_object, "MessageType", 1);
+    cJSON_AddNumberToObject(response_object, "RequestType", 7);
+    cJSON_AddItemToObject(response_object, "OperationResult", operation_result_object);
+
+    return response_object; 
+
+clean:
+    if(NULL == ret)
+    {
+        cJSON_Delete(ret);
+    }
+    if(NULL == operation_result_object)
+    {
+        cJSON_Delete(operation_result_object);
+    }
+    return NULL;
+
 }
 
-cJSON *get_usage(cJSON *param)
+
+static cJSON *get_vm_info()
 {
-    
+    return get_vm_info_impl();
 }
 
+static cJSON *get_host_info()
+{
+    HOST_INFO *host_info = NULL;
+    host_info = get_host_info_impl();    
+    if(NULL == host_info)
+    {
+        return NULL;
+    }
+
+    cJSON *operation_result = cJSON_CreateObject();
+    if(NULL == operation_result)
+    {
+        goto clean;
+    }
+
+    cJSON_AddNumberToObject(operation_result, "CpuRate", host_info->cpu_rate);
+    cJSON_AddNumberToObject(operation_result, "MemoryTotal", host_info->memory_total);
+    cJSON_AddNumberToObject(operation_result, "MemoryFree", host_info->memory_free);
+    cJSON_AddNumberToObject(operation_result, "DiskTotal", host_info->disk_total);
+    cJSON_AddNumberToObject(operation_result, "DiskFree", host_info->disk_free);
+ 
+    return operation_result;
+clean:
+    if(NULL != operation_result)
+    {
+        cJSON_Delete(operation_result);
+        operation_result = NULL;
+    }
+    if(NULL != host_info)
+    {
+        free(host_info);
+    }
+    return NULL;
+}
 
 cJSON *undefine_vm(cJSON *param)
 {

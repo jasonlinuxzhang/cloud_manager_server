@@ -2,20 +2,30 @@
 #include <pthread.h>
 #include <ctype.h>
 #include <fcntl.h>
+#include <mntent.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <sys/vfs.h>
+#include "../log/log.h"
 #include "../common.h"
 #include "host.h"
-
 
 #define CPU_MAX 128
 
 pthread_t cpu_tid;
 pthread_t mem_tid;
+pthread_t disk_tid;
 
 static int cpu_rate = 0;
 static int mem_total = 0, mem_free = 0;
+static int disk_total = 0, disk_free = 0;
 
+static void *cpu_monitor(void *argv);
+static void *disk_monitor(void *argv);
+static void *memory_monitor(void *argv);
 
-HOST_INFO *get_host_info()
+HOST_INFO *get_host_info_impl()
 {
     HOST_INFO *host_info = NULL;
     host_info = (HOST_INFO *)malloc(sizeof(HOST_INFO));
@@ -26,8 +36,12 @@ HOST_INFO *get_host_info()
     }
     
     host_info->cpu_rate = cpu_rate;
-    host_info->memory_total = mem_total;
-    host_info->memory_free = mem_free;
+    host_info->memory_total = mem_total/1024;
+    host_info->memory_free = mem_free/1024;
+    host_info->disk_total = disk_total/1024;
+    host_info->disk_free = disk_free/1024;
+
+    return host_info;
 }
 
 int host_monitor_init()
@@ -42,6 +56,11 @@ int host_monitor_init()
         log_error_message("create thread memory monitor fail");
         return -1;
     }
+    if(-1 == pthread_create(&disk_tid, NULL, disk_monitor, NULL))
+    {
+        log_error_message("create thread disk monitor fail");
+        return -1;
+    }
 }
 
 static char *skip_token(const char *p)
@@ -51,7 +70,7 @@ static char *skip_token(const char *p)
     return (char *)p;
 }
 
-void *cpu_monitor(void *argv)
+static void *cpu_monitor(void *argv)
 {
     int read_count = 0, i;
     char buf[READ_FILE_MAX];
@@ -81,7 +100,7 @@ void *cpu_monitor(void *argv)
     
     while(!g_exit)
     {
-        sleep(1)
+        sleep(1);
         fd = open("/proc/stat", O_RDONLY);
         if(-1 == fd)
         {
@@ -95,9 +114,10 @@ void *cpu_monitor(void *argv)
         }
     
         buf[read_count] = '\0'; 
+        p = skip_token(buf);
         for(i = 0; i < 10; i++)
         {
-            cpu_new[i] = strtoul(p, &p, 0);
+            cpu_new[i] = strtoul(p, &p, 10);
         }
         close(fd);
         
@@ -122,13 +142,15 @@ void *cpu_monitor(void *argv)
         }
         
         cpu_rate = cpu_usage; 
-        for (i = 0; i < NCPUSTATES; i++)
+        for (i = 0; i < 10; i++)
+        {
             cpu_old[i] = cpu_new[i];
+        }
     }
 }
 
 
-void *memory_monitor(void *argv)
+static void *memory_monitor(void *argv)
 {
     int fd = -1;
     int read_count = 0; 
@@ -158,7 +180,7 @@ void *memory_monitor(void *argv)
         }
         
         buf[read_count] = '\0';
-        p = buff;
+        p = buf;
         p = skip_token(p);
         mem_total = strtoul(p, &p, 10);
         
@@ -167,6 +189,7 @@ void *memory_monitor(void *argv)
         mem_free = strtoul(p, &p, 10);
         
         close(fd);
+        sleep(1);
     }
 
 clean:
@@ -179,5 +202,41 @@ clean:
         close(fd);
     }
     return NULL;
+}
+
+
+static void *disk_monitor(void *argv)
+{
+    FILE *fh = NULL;
+    struct mntent *mnt_info;
+    struct statfs   fs_info;
+    long long sum_disk_total = 0, sum_disk_free = 0;
+    int ret = -1;
+
+    if ((fh = setmntent("/etc/mtab", "r")) == NULL)
+    {
+        log_error_message("setmentent /etc/mtab fail.");
+        return NULL;
+    }
+
+    while ((mnt_info = getmntent(fh)))
+    {
+        if (mnt_info->mnt_fsname && ((0 == strncmp(mnt_info->mnt_fsname, "/dev/", 5))))
+        {       
+            if (statfs(mnt_info->mnt_dir, &fs_info) < 0)
+                continue;
+
+            if (fs_info.f_blocks !=0)
+            {
+                sum_disk_total += fs_info.f_blocks * fs_info.f_bsize / 1024;
+                sum_disk_free  += fs_info.f_bfree * fs_info.f_bsize / 1024;
+            }
+        }
+    }
+    endmntent(fh);
+
+    disk_total = sum_disk_total;
+    disk_free = sum_disk_free;
+    ret = 0;
 
 }

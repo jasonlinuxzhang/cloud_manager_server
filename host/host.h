@@ -10,4 +10,7 @@ typedef struct _HOST_INFO
     int disk_free;
 }HOST_INFO;
 
+HOST_INFO *get_host_info_impl();
+int host_monitor_init();
+
 #endif
