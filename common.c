@@ -297,3 +297,55 @@ clean:
     return NULL;
 }
 
+char * replace(char *source_string, const char *first_match, const char *second_match, const char *dest_string)
+{
+    char *pos_start = NULL, *pos_end = NULL;
+    char *new_string = NULL;
+    int pos_offset = 0;
+        
+
+    if(NULL == source_string || NULL == first_match || NULL == second_match || NULL == dest_string)
+    {
+        log_error_message("param is null");
+        return NULL;
+    }
+
+    pos_start = strstr(source_string, first_match);
+    if(NULL == pos_start)
+    {
+        log_error_message("can't find %s", first_match); 
+        return NULL;  
+    }
+    
+    pos_end = strstr(source_string, second_match);
+    if(NULL == pos_end)
+    {
+        log_error_message("can't find %s", second_match);
+        return NULL;
+    }
+
+    new_string = malloc(strlen(source_string) + strlen(first_match) + strlen(second_match) + 1);
+    if(NULL == new_string)
+    {
+        log_error_message("alloc memory fail");
+        return NULL;
+    } 
+    memset(new_string, 0, strlen(source_string) + strlen(first_match) + strlen(second_match) + 1);
+
+    pos_offset = 0;
+    memcpy(new_string + pos_offset, source_string, pos_start + strlen(first_match)- source_string);
+    
+    pos_offset += (pos_start + strlen(first_match) - source_string);
+    
+    memcpy(new_string + pos_offset, dest_string, strlen(dest_string));
+    pos_offset += strlen(dest_string);
+        
+    memcpy(new_string + pos_offset, pos_end, strlen(source_string) - (pos_end - source_string));
+
+    free(source_string);
+    
+    return new_string;
+}
+
+
+

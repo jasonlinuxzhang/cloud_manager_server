@@ -38,4 +38,5 @@ int try_connect();
 int get_vm_port(char *vm_name);
 char *get_vm_mac(char *name);
 char *build_vm_xml(VM_ATTRIBUTE *attribute);
+char * replace(char *source_string, const char *first_match, const char *second_match, const char *dest_string);
 #endif

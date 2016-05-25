@@ -16,5 +16,6 @@ cJSON *detail_vm(cJSON *param);
 cJSON *define_vm(cJSON *param);
 cJSON *undefine_vm(cJSON *param);
 cJSON *yun_monitor(cJSON *param);
+cJSON *change_vm_config(cJSON *param);
 
 #endif 

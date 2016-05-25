@@ -24,6 +24,7 @@ OPERATION operation_group[] = {
     {"DETAIL", detail_vm},
     {"UNDEFINE", undefine_vm},
     {"MONITOR", yun_monitor},
+    {"CHANGE", change_vm_config},
     {NULL, NULL}
 };
 
@@ -38,10 +39,170 @@ const char *operation_code_to_string(int code)
         case 5: return "DETAIL";
         case 6: return "UNDEFINE";
         case 7: return "MONITOR";
+        case 8: return "CHANGE";
 
         default: return NULL;
     }    
 }
+
+cJSON *change_vm_config(cJSON *param)
+{
+    char *buf = NULL;
+    char *xml = NULL, *new_xml = NULL;
+    cJSON *vm_name = NULL, *disk_size = NULL, *cpu_number = NULL, *memory_size = NULL, *cdrom_type = NULL;
+    int status = 0;
+    char memory_buff[10] = {0}, cpu_buff[10] = {0}, disk_buff[10] = {0};
+    char cdrom_sourcefile[1024] = {0};
+    cJSON *return_object = NULL;
+    virDomainPtr domain;
+    if(NULL == param)
+    {
+        return NULL;
+    }
+    
+    vm_name = cJSON_GetObjectItem(param, "VmName");
+    if(NULL == vm_name || cJSON_String != vm_name->type)
+    {
+        log_error_message("vm name object is null or type mismatch");
+        goto clean;
+    }
+
+    disk_size = cJSON_GetObjectItem(param, "DiskSize");
+    if(NULL != disk_size && cJSON_Number != disk_size->type)
+    {
+        log_error_message("disk size object is null or type mismatch");
+        goto clean;
+    }
+    
+    cpu_number = cJSON_GetObjectItem(param, "CpuNumber");
+    if(NULL != cpu_number && cJSON_Number != cpu_number->type)
+    {
+        log_error_message("cpu number object is null or type mismatch");
+        goto clean;
+    }
+    
+    memory_size = cJSON_GetObjectItem(param, "MemorySize");
+    if(NULL != memory_size && cJSON_Number != memory_size->type)
+    {
+        log_error_message("memory size object is null or type mismatch");
+        goto clean;
+    }
+
+    cdrom_type = cJSON_GetObjectItem(param, "CdromType");
+    if(NULL != cdrom_type && cJSON_String != cdrom_type->type)
+    {
+        log_error_message("cdrom type object is null or type mismatch");
+        goto clean;
+    }
+
+    try_connect();
+    
+    domain = virDomainLookupByName(g_conn, vm_name->valuestring);
+    if(NULL == domain)
+    {
+        log_error_message("can't get domain by %s", vm_name->valuestring);
+        goto clean;
+    } 
+
+    xml = virDomainGetXMLDesc(domain, VIR_DOMAIN_XML_INACTIVE);
+    if(NULL == xml)
+    {
+        log_error_message("can't get %s xml", vm_name->valuestring);
+        goto clean;
+    }
+    
+    new_xml = malloc(strlen(xml) + 1);
+    if(new_xml == NULL)
+    {
+        log_error_message("alloc memory fail");
+        xml = NULL;
+        goto clean;
+    }
+    memset(new_xml, 0, strlen(xml) + 1);
+    memcpy(new_xml, xml, strlen(xml));
+    xml = new_xml;
+
+    if(0 != virDomainGetState(domain, &status, NULL, 0))
+    {
+        log_error_message("can't get %s state", vm_name->valuestring);
+        goto clean;
+    }
+    
+    if(status == VIR_DOMAIN_SHUTOFF)   
+    {
+        if(NULL != memory_size)
+        {
+            sprintf(memory_buff, "%d", memory_size->valueint * 1024 * 512);
+            new_xml = replace(xml, "<memory unit='KiB'>", "</memory>", memory_buff);
+            if(NULL == new_xml)
+            {
+                goto clean;
+            }
+            xml = new_xml;
+
+            new_xml  = replace(xml, "<currentMemory unit='KiB'>", "</currentMemory>", memory_buff);
+            if(NULL == new_xml)
+            {
+                goto clean;
+            }
+            xml = new_xml;
+        }
+        if(NULL != cpu_number)
+        {
+            sprintf(cpu_buff, "%d", cpu_number->valueint);
+            new_xml = replace(xml, "<vcpu placement='static'>", "</vcpu>", cpu_buff);
+            if(NULL == new_xml)
+            {
+                goto clean;
+            } 
+            xml = new_xml;
+        }
+        printf("%s\n", xml);
+        if(0 != virDomainUndefine(domain))
+        {
+            get_libvirt_error();
+            goto clean;
+        }
+
+        if(NULL == virDomainDefineXML(g_conn, xml))
+        {
+            get_libvirt_error();
+            goto clean;
+        }
+    }
+    else
+    {
+        if(NULL != cdrom_type)
+        {
+            sprintf(cdrom_sourcefile, "<disk type='file' device='cdrom'>\n<driver name='qemu' type='raw'/>\n<source file='%s%s'/>\n<target dev='hda' bus='ide'/>\n<readonly/>",  IMAGE_PATH, cdrom_type->valuestring);
+        }
+        if(0 != virDomainUpdateDeviceFlags(domain, cdrom_sourcefile, VIR_DOMAIN_DEVICE_MODIFY_FORCE))
+        {
+            log_error_message("update cdrom fail"); 
+            goto clean;
+        }
+
+    }
+    
+    return_object = cJSON_CreateObject();
+    if(NULL == return_object)
+    {
+        goto clean;
+    } 
+  
+    cJSON_AddNumberToObject(return_object, "MessageType", 1);
+    cJSON_AddNumberToObject(return_object, "RequestType", 8);
+clean:   
+    
+    if(NULL != xml)
+    {
+        free(xml);
+    }
+    
+    return NULL;
+     
+}
+
 
 cJSON *yun_monitor(cJSON *param)
 {
@@ -331,7 +492,7 @@ cJSON *define_vm(cJSON *param)
     }
 
     vmCount = virConnectListAllDomains(g_conn, &domains, 0);
-    if(vmCount <= 0)
+    if(vmCount < 0)
     {
         get_libvirt_error();
         return NULL;
