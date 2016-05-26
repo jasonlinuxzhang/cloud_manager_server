@@ -117,7 +117,7 @@ void *handle_operation(void *arg)
             log_info_message("expect read count:%d real read count:%d not equal", json_len - 1, read_count);
             goto clean;
         }
-        log_info_message("%s", buf);
+      //  log_info_message("%s", buf);
         /* search handle*/
         operation_object = handle_cJSON_and_search_operation(buf);
         if(NULL == operation_object)
@@ -148,7 +148,7 @@ clean:
         }
         else
         {
-            log_info_message("write response success:%s", operation_result_string);
+           // log_info_message("write response success:%s", operation_result_string);
         }
         
     }

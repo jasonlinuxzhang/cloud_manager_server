@@ -205,6 +205,7 @@ char *build_vm_xml(VM_ATTRIBUTE *attribute)
     char *xml_string = NULL, *xml_string_temp = NULL;
     int filefd = -1;
     char memory_buffer[10]= {0}, cpu_buffer[10] = {0}, disk_name_buffer[128] = {0};
+    char system_type_buffer[128]  = {0};
 
     if(NULL == attribute)
     {
@@ -272,8 +273,8 @@ char *build_vm_xml(VM_ATTRIBUTE *attribute)
     }
     xml_string = xml_string_temp;
     
-    sprintf(disk_name_buffer, "%s%s.iso", IMAGE_PATH, attribute->system_type);
-    xml_string_temp = insert_string(xml_string, "device='cdrom'>\n<source file='", disk_name_buffer);
+    sprintf(system_type_buffer, "%s%s.iso", IMAGE_PATH, attribute->system_type);
+    xml_string_temp = insert_string(xml_string, "device='cdrom'>\n<source file='", system_type_buffer);
     if(NULL == xml_string_temp)
     {
         goto clean;

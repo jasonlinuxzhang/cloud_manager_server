@@ -562,6 +562,7 @@ cJSON *destroy_vm(cJSON *param)
     cJSON *vm_object = NULL;
     virDomainPtr domain;
     int res = 0, i = 0;
+    char rm_disk_cmd[128] = {0};
     if(NULL == param || cJSON_Array != param->type) 
     {
         log_error_message("JSON object is null orJSON object is not array");
@@ -592,6 +593,11 @@ cJSON *destroy_vm(cJSON *param)
             continue;
         }
         
+        memset(rm_disk_cmd, 0, sizeof(rm_disk_cmd));
+        sprintf(rm_disk_cmd, "rm %s%s -f", IMAGE_PATH, vm_object->valuestring);
+       
+        system(rm_disk_cmd); 
+
         res = virDomainDestroy(domain);
         if(0 != res)
         {
