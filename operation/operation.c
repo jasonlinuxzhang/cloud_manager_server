@@ -40,7 +40,6 @@ const char *operation_code_to_string(int code)
         case 6: return "UNDEFINE";
         case 7: return "MONITOR";
         case 8: return "CHANGE";
-
         default: return NULL;
     }    
 }
@@ -157,7 +156,6 @@ cJSON *change_vm_config(cJSON *param)
             } 
             xml = new_xml;
         }
-        printf("%s\n", xml);
         if(0 != virDomainUndefine(domain))
         {
             get_libvirt_error();

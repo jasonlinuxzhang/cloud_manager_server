@@ -13,6 +13,9 @@
 #include "operation/operation.h"
 #include "host/host.h"
 #include "vm_monitor/vm_monitor.h"
+#include<sys/param.h>
+#include<sys/types.h>
+#include<sys/stat.h>
 
 void *handle_operation(void *arg);
 int search_operation_func(int operation_code);
@@ -20,17 +23,70 @@ cJSON * handle_cJSON_and_search_operation(char *json_string);
 
 extern OPERATION operation_group[];
 
+void init_daemon()
+{
+    int pid, i;
+    pid = fork();
+    if(pid < 0)
+    {
+        log_error_message("first fork fail");     
+        exit(1);
+    }
+    else if(pid > 0)
+    {
+        exit(0);
+    }
+
+    setsid(); 
+    pid=fork();
+    if(pid>0)
+    {
+        exit(0);
+    }
+    else if(pid<0)    
+    {
+        exit(1);
+    }
+
+    for(i=0;i<NOFILE;i++)
+        close(i);
+    chdir("/home"); 
+    umask(0);
+    log_info_message("now this is daemon");
+}
+
+int redirect_std_to_file()
+{
+    FILE *fp = NULL;
+    if((fp = fopen(LOG_FILE_PATH, "a+")) == NULL)
+    {
+        log_error_message("open file fail");
+        return -1;
+    }
+    if(dup2(fileno(fp), STDOUT_FILENO) == -1)
+    {
+        log_error_message("redirect stdout fail");
+        return -1;
+    }
+    if(dup2(fileno(fp), STDERR_FILENO) == -1)
+    {
+        log_error_message("redirect stderr fail");
+        return -1;
+    }
+    fclose(fp);
+    log_info_message("redirect stdout and stderr to log file success");
+}
+
 int manager_init()
 {
     g_exit = 0;
-    if(-1 == socket_init())
+    log_init();
+    if(-1 == redirect_std_to_file() || -1 == socket_init() || -1 == host_monitor_init() || -1 == vm_monitor_init())
     {
+        log_error_message("some init fail");
         return -1;
     }
-    host_monitor_init();
-    vm_monitor_init();
 }
-
 
 int main()
 {
@@ -39,11 +95,16 @@ int main()
     struct sockaddr_in client_addr;
     int client_fd = 0, client_fd_bak = 0;
     pthread_t tid;
+
+    init_daemon();
+
     res = manager_init();
     if(-1 == res)
     {
+        log_error_message("manage init fail");
         return -1;
     }
+    log_info_message("start listen");
     while(!g_exit)
     {
         memset(&client_addr, 0, sizeof(client_addr));
@@ -61,7 +122,7 @@ int main()
         {
             memset(client_ip, 0, sizeof(client_ip));
             inet_ntop(AF_INET, (void *)&client_addr.sin_addr, client_ip, sizeof(client_ip));
-            log_info_message("new connect ip:%s", client_ip);
+            log_debug_message("new connect ip:%s", client_ip);
             client_fd_bak = client_fd;
             pthread_create(&tid, NULL, handle_operation, (void *)&client_fd_bak);
         }
@@ -91,7 +152,7 @@ void *handle_operation(void *arg)
         }
         count ++;
     }
-    log_info_message("read json length(head):%s", json_len_string);
+    log_debug_message("read json length(head):%s", json_len_string);
     
     sscanf(json_len_string, "%d", &json_len);
     
@@ -114,10 +175,9 @@ void *handle_operation(void *arg)
         read_count = saferead(client_fd, buf + 1, json_len - 1);
         if(read_count != json_len - 1)
         {
-            log_info_message("expect read count:%d real read count:%d not equal", json_len - 1, read_count);
+            log_error_message("expect read count:%d real read count:%d not equal", json_len - 1, read_count);
             goto clean;
         }
-      //  log_info_message("%s", buf);
         /* search handle*/
         operation_object = handle_cJSON_and_search_operation(buf);
         if(NULL == operation_object)
@@ -148,7 +208,7 @@ clean:
         }
         else
         {
-           // log_info_message("write response success:%s", operation_result_string);
+            log_debug_message("write response success:%s", operation_result_string);
         }
         
     }
@@ -223,5 +283,4 @@ int search_operation_func(int operation_code)
     {
         return -1;
     }
-    
 }

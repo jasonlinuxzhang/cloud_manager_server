@@ -16,7 +16,7 @@ pthread_t vm_tid;
 static VM_MONITOR_STRUCT *vm_monitor_tid_head = NULL;       /*monitor thread */
 static CPU_RATE *vm_cpu_rate_head = NULL;                   /*cpu rate*/
 
-pthread_mutex_t monitor_thread_mutex, cpu_rate_mutex;
+pthread_mutex_t cpu_rate_mutex;
 
 
 void *vm_monitor(void *argv);
@@ -25,13 +25,11 @@ void *one_vm_monitor(void *argv);
 int vm_monitor_init()
 {
     int ret = 0;
-    pthread_mutex_init(&monitor_thread_mutex, NULL);
     pthread_mutex_init(&cpu_rate_mutex, NULL);
     ret = pthread_create(&vm_tid, NULL, vm_monitor, NULL);
     if(ret < 0)
     {
         log_error_message("create thread vm monitor faill");
-        pthread_mutex_destroy(&monitor_thread_mutex);
         pthread_mutex_destroy(&cpu_rate_mutex);
         return -1;
     }
@@ -91,7 +89,7 @@ cJSON* get_vm_info_impl()
     temp = vm_cpu_rate_head;
     while(NULL != temp)
     {
-        if((now_time.tv_sec - temp->last_time.tv_sec)*1000 + (now_time.tv_nsec - temp->last_time.tv_nsec)/1000000 > 2000) 
+        if((now_time.tv_sec - temp->last_time.tv_sec)*1000 + (now_time.tv_nsec - temp->last_time.tv_nsec)/1000000 > 1500) 
         {
             temp_2 = temp;
             temp =temp->next;
@@ -302,7 +300,6 @@ void *one_vm_monitor(void *argv)
         cputime = (cpu_end - cpu_start) * 1.0/1000;
         realtime = 1000000 * (endtime.tv_sec - starttime.tv_sec) + (endtime.tv_nsec - starttime.tv_nsec) * 1.0/1000;
         cpu_usage = (cputime * 10000) / realtime;
-        printf("%s %d.%d\n", vm_name, cpu_usage/100, cpu_usage%100);
         
         pthread_mutex_lock(&cpu_rate_mutex);
         temp = vm_cpu_rate_head;
@@ -340,7 +337,6 @@ void *one_vm_monitor(void *argv)
             vm_cpu_rate_head->rate = cpu_usage;
             clock_gettime(CLOCK_REALTIME, &vm_cpu_rate_head->last_time);
         }
-       
         pthread_mutex_unlock(&cpu_rate_mutex);
     
     }

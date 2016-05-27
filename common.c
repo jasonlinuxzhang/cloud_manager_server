@@ -52,7 +52,6 @@ int saferead(int sockfd, char *buf, int count)
     int count_left = count;
     while((read_count = read(sockfd, buf, count_left)))
     {
-        log_info_message("read %d", read_count);
         if(read_count < 0)
         {
             if(EINTR == errno)
