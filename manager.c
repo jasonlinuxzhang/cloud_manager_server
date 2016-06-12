@@ -96,7 +96,7 @@ int main()
     int client_fd = 0, client_fd_bak = 0;
     pthread_t tid;
 
-    init_daemon();
+//    init_daemon();
 
     res = manager_init();
     if(-1 == res)
@@ -139,7 +139,7 @@ void *handle_operation(void *arg)
     char *buf = NULL, *operation_result_string = NULL;
     char *response_string = NULL;
     int json_len = 0, count = 0, read_count = 0, write_count = 0;
-    char json_len_string[128] = {0};
+    char json_len_string[1024] = {0};
     cJSON *operation_object = NULL;
     
     /*read len character, until meer '{'*/
@@ -152,18 +152,16 @@ void *handle_operation(void *arg)
         }
         count ++;
     }
-    log_debug_message("read json length(head):%s", json_len_string);
+    log_debug_message("read json length(head):%s, count:%d", json_len_string, count);
     
     sscanf(json_len_string, "%d", &json_len);
     
     if(json_len <= 0)
     {
-        read_count = read(client_fd, json_len_string, 128);
-        json_len_string[read_count] = '\0';
-        log_info_message("%s", json_len_string);
+        log_error_message("json length string to number fail, read count: %d", count);
         goto clean;
     }
-    else
+    else if(json_len < 1024 * 1024)
     {
         buf = malloc(json_len * sizeof(char) + 1);
         if(NULL == malloc)
@@ -182,6 +180,7 @@ void *handle_operation(void *arg)
         operation_object = handle_cJSON_and_search_operation(buf);
         if(NULL == operation_object)
         {
+            log_error_message("handle_cJSON_and_search_operation fail");
             goto clean;
         }
         operation_result_string = cJSON_PrintUnformatted(operation_object);

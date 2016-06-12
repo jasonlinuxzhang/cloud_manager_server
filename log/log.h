@@ -2,7 +2,7 @@
 #define _LOG
 
 #include <pthread.h>
-
+#define LOG_CONFIG_FILE "/etc/yun_manager/config"
 pthread_mutex_t log_thread_mutex;
 
 int gLogFd;

@@ -14,10 +14,13 @@
 
 pthread_t log_thread_t;
 
+int get_log_level_from_config();
+char *log_level_string(LOG_LEVEL log_level);
 
 int log_init()
 {
-    log_filter = DEBUG;   
+    log_filter = get_log_level_from_config();   
+    log_info_message("log filter is %s", log_level_string(log_filter));
     pthread_mutex_init(&log_thread_mutex, NULL);
     if(0 != pthread_create(&log_thread_t, NULL, log_monitor, NULL))
     {
@@ -27,6 +30,30 @@ int log_init()
     }
     return 0;
 }
+
+int get_log_level_from_config()
+{
+    FILE *fp = NULL;
+    char level[8] = {0};
+    int nread = 0, log_level = -1;
+    if((fp = fopen(LOG_CONFIG_FILE, "r")) == NULL)
+    {
+        log_error_message("fopen %s fail", LOG_CONFIG_FILE);
+        return -1;
+    }
+    if((nread = fread(level, sizeof(char), sizeof(level), fp)) <= 0)
+    {
+        log_error_message("read date from %s fail", LOG_CONFIG_FILE);
+        fclose(fp);
+        return -1;
+    }
+    
+    level[nread] = 0;
+    sscanf(level, "%d", &log_level);
+    return log_level;
+    
+}
+
 
 void *log_monitor(void *argv)
 {

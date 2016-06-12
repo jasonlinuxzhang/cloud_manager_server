@@ -172,7 +172,8 @@ cJSON *change_vm_config(cJSON *param)
     {
         if(NULL != cdrom_type)
         {
-            sprintf(cdrom_sourcefile, "<disk type='file' device='cdrom'>\n<driver name='qemu' type='raw'/>\n<source file='%s%s'/>\n<target dev='hda' bus='ide'/>\n<readonly/>",  IMAGE_PATH, cdrom_type->valuestring);
+            sprintf(cdrom_sourcefile, "<disk type='file' device='cdrom'>\n<driver name='qemu' type='raw'/>\n<source file='%s%s.iso'/>\n<target dev='hda' bus='ide'/>\n<readonly/>\n</disk>",  IMAGE_PATH, cdrom_type->valuestring);
+            log_info_message("%s", cdrom_sourcefile);
         }
         if(0 != virDomainUpdateDeviceFlags(domain, cdrom_sourcefile, VIR_DOMAIN_DEVICE_MODIFY_FORCE))
         {
@@ -300,6 +301,7 @@ cJSON *undefine_vm(cJSON *param)
     cJSON *vm_object = NULL;
     virDomainPtr domain;
     int res = 0, i = 0;
+    char rm_disk_cmd[128] = {0};
     if(NULL == param || cJSON_Array != param->type) 
     {
         log_error_message("JSON object is null orJSON object is not array");
@@ -335,6 +337,16 @@ cJSON *undefine_vm(cJSON *param)
         {
             get_libvirt_error();
             continue;
+        }
+        memset(rm_disk_cmd, 0, sizeof(rm_disk_cmd));
+        sprintf(rm_disk_cmd, "rm %s%s.qcow2 -f", IMAGE_PATH, vm_object->valuestring);
+        if(0 != system(rm_disk_cmd))
+        {
+            log_error_message("%s fail", rm_disk_cmd);
+        }
+        else
+        {
+            log_info_message("%s success", rm_disk_cmd);
         }
     }
     
@@ -450,7 +462,7 @@ cJSON *define_vm(cJSON *param)
 
     if(NULL != virDomainLookupByName(g_conn, name_object->valuestring))
     {
-        get_libvirt_error();
+        log_error_message("%s is exist already", name_object->valuestring);
         return NULL;
     }
 
@@ -560,7 +572,6 @@ cJSON *destroy_vm(cJSON *param)
     cJSON *vm_object = NULL;
     virDomainPtr domain;
     int res = 0, i = 0;
-    char rm_disk_cmd[128] = {0};
     if(NULL == param || cJSON_Array != param->type) 
     {
         log_error_message("JSON object is null orJSON object is not array");
@@ -591,17 +602,13 @@ cJSON *destroy_vm(cJSON *param)
             continue;
         }
         
-        memset(rm_disk_cmd, 0, sizeof(rm_disk_cmd));
-        sprintf(rm_disk_cmd, "rm %s%s -f", IMAGE_PATH, vm_object->valuestring);
-       
-        system(rm_disk_cmd); 
-
         res = virDomainDestroy(domain);
         if(0 != res)
         {
             get_libvirt_error();
             continue;
         }
+
     }
     
     /* send list fetch result after start vms */

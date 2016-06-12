@@ -17,6 +17,7 @@ static VM_MONITOR_STRUCT *vm_monitor_tid_head = NULL;       /*monitor thread */
 static CPU_RATE *vm_cpu_rate_head = NULL;                   /*cpu rate*/
 
 pthread_mutex_t cpu_rate_mutex;
+pthread_mutex_t cpu_node_mutex;
 
 
 void *vm_monitor(void *argv);
@@ -26,11 +27,13 @@ int vm_monitor_init()
 {
     int ret = 0;
     pthread_mutex_init(&cpu_rate_mutex, NULL);
+    pthread_mutex_init(&cpu_node_mutex, NULL);
     ret = pthread_create(&vm_tid, NULL, vm_monitor, NULL);
     if(ret < 0)
     {
         log_error_message("create thread vm monitor faill");
         pthread_mutex_destroy(&cpu_rate_mutex);
+        pthread_mutex_destroy(&cpu_node_mutex);
         return -1;
     }
 }
@@ -38,6 +41,7 @@ int vm_monitor_init()
 
 void detach_and_free_cpu_node(CPU_RATE *temp)
 {
+    pthread_mutex_lock(&cpu_node_mutex);
     CPU_RATE *head = vm_cpu_rate_head, *pre = NULL;
     if(NULL == temp)
     {
@@ -67,6 +71,7 @@ void detach_and_free_cpu_node(CPU_RATE *temp)
     free(temp->name);
     free(temp);
     log_info_message("exit delete cpu node");
+    pthread_mutex_unlock(&cpu_node_mutex);
 }
 
 
